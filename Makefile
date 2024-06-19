@@ -19,6 +19,8 @@ CLUSTER_ID_FILE=cluster_id.txt
 
 all: create-buckets upload-code upload-data create-cluster add-step monitor-cluster
 
+deploy: create-buckets upload-code upload-data create-cluster add-step 
+
 create-buckets:
 	aws s3 mb $(BUCKET_CODE)
 	aws s3 mb $(BUCKET_LOGS)
@@ -35,25 +37,26 @@ upload-data:
 create-cluster:
 	@echo "Creating EMR cluster..."
 	aws emr create-cluster \
-		--name "$(CLUSTER_NAME)" \
-		--log-uri "$(LOG_URI)" \
-		--release-label "$(RELEASE_LABEL)" \
-		--service-role "$(SERVICE_ROLE)" \
-		--tags "Project=holamundo" "Team=Data" "Domain=Operations" "CostCenter=141013" \
-		--ec2-attributes InstanceProfile=$(INSTANCE_PROFILE),KeyName=$(KEY_NAME),SubnetId=$(SUBNET_ID) \
-		--applications Name=Hadoop Name=Spark \
-		--instance-groups '[{"InstanceCount":1,"InstanceGroupType":"MASTER","Name":"Master","InstanceType":"m5.xlarge","EbsConfiguration":{"EbsBlockDeviceConfigs":[{"VolumeSpecification":{"VolumeType":"gp2","SizeInGB":32},"VolumesPerInstance":2}]}}]' \
-		--auto-scaling-role "$(AUTO_SCALING_ROLE)" \
-		--scale-down-behavior "TERMINATE_AT_TASK_COMPLETION" \
-		--auto-termination-policy '{"IdleTimeout":10800}' \
-		--region "$(REGION)" \
-		--query 'ClusterId' --output text | tr -d '"' > $(CLUSTER_ID_FILE)
+    --name "$(CLUSTER_NAME)" \
+    --log-uri "$(LOG_URI)" \
+    --release-label "$(RELEASE_LABEL)" \
+    --service-role "$(SERVICE_ROLE)" \
+    --tags "Project=holamundo" "Team=Data" "Domain=Operations" "CostCenter=141013" \
+    --ec2-attributes InstanceProfile=$(INSTANCE_PROFILE),KeyName=$(KEY_NAME),SubnetId=$(SUBNET_ID) \
+    --applications Name=Hadoop Name=Spark Name=JupyterHub Name=JupyterEnterpriseGateway \
+    --instance-groups '[{"InstanceCount":1,"InstanceGroupType":"MASTER","Name":"Master","InstanceType":"m5.xlarge","EbsConfiguration":{"EbsBlockDeviceConfigs":[{"VolumeSpecification":{"VolumeType":"gp2","SizeInGB":32},"VolumesPerInstance":2}]}}]' \
+    --auto-scaling-role "$(AUTO_SCALING_ROLE)" \
+    --scale-down-behavior "TERMINATE_AT_TASK_COMPLETION" \
+    --auto-termination-policy '{"IdleTimeout":10800}' \
+    --region "$(REGION)" \
+    --bootstrap-actions '[{"Path":"s3://my-bucket/bootstrap-actions/install-jupyter.sh"}]' \
+    --query 'ClusterId' --output text | tr -d '"' > $(CLUSTER_ID_FILE)
 	@echo "Cluster created with ID: $$(cat $(CLUSTER_ID_FILE))"
 
 add-step:
 	@read -p "Enter Cluster ID (or leave empty to use last created): " CLUSTER_ID_INPUT; \
 	CLUSTER_ID=$${CLUSTER_ID_INPUT:-$$(cat $(CLUSTER_ID_FILE))}; \
-	aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=TERMINATE_CLUSTER,Args=[--deploy-mode,cluster,--master,yarn,$(BUCKET_CODE)/main.py,--input_uris,s3://emr-data-holamundo/product1.csv,s3://emr-data-holamundo/product2.csv,s3://emr-data-holamundo/product3.csv,--delta_table_path,s3://emr-data-holamundo/delta/products]
+	aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=TERMINATE_CLUSTER,Args=[--deploy-mode,cluster,--master,yarn,$(BUCKET_CODE)/main.py,s3://emr-data-holamundo/product1.csv,s3://emr-data-holamundo/product2.csv,s3://emr-data-holamundo/product3.csv,s3://emr-data-holamundo/combined/products]
 
 monitor-cluster:
 	@read -p "Enter Cluster ID (or leave empty to use last created): " CLUSTER_ID_INPUT; \
