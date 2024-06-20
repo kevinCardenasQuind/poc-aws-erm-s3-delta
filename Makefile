@@ -2,6 +2,7 @@
 BUCKET_CODE=s3://emr-code-holamundo
 BUCKET_LOGS=s3://emr-logs-holamundo
 BUCKET_DATA=s3://emr-data-holamundo
+BUCKET_OUTPUT=s3://emr-output-holamundo
 REGION=us-east-1
 CLUSTER_NAME=emr-holamundo-cluster
 LOG_URI=$(BUCKET_LOGS)
@@ -27,6 +28,7 @@ create-buckets:
 	aws s3 mb $(BUCKET_CODE)
 	aws s3 mb $(BUCKET_LOGS)
 	aws s3 mb $(BUCKET_DATA)
+	aws s3 mb $(BUCKET_OUTPUT)
 
 upload-code:
 	aws s3 cp main.py $(BUCKET_CODE)/
@@ -49,11 +51,11 @@ create-cluster:
 		--unhealthy-node-replacement \
     	--tags "Project=holamundo" "Team=Data" "Domain=Operations" "CostCenter=141013" \
 		--ec2-attributes '{"InstanceProfile":"$(INSTANCE_PROFILE)","EmrManagedMasterSecurityGroup":"sg-0384e76fa9579f05c","EmrManagedSlaveSecurityGroup":"sg-0e9bd1960cb8f98be","KeyName":"$(KEY_NAME)","AdditionalMasterSecurityGroups":[],"AdditionalSlaveSecurityGroups":[],"ServiceAccessSecurityGroup":"sg-0c9c4c15e95544efd","SubnetId":"$(SUBNET_ID)"}' \
-		--applications Name=Hadoop Name=Hive Name=JupyterEnterpriseGateway Name=JupyterHub Name=Livy Name=Spark \
+ 		--applications Name=AmazonCloudWatchAgent Name=Hadoop Name=Hive Name=JupyterEnterpriseGateway Name=Livy Name=Spark \
+		--configurations '[{"Classification":"spark-hive-site","Properties":{"hive.metastore.client.factory.class":"com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"}}]' \
 		--instance-groups '[{"InstanceCount":1,"InstanceGroupType":"MASTER","Name":"Principal","InstanceType":"m5.xlarge","EbsConfiguration":{"EbsBlockDeviceConfigs":[{"VolumeSpecification":{"VolumeType":"gp2","SizeInGB":32},"VolumesPerInstance":2}]}},{"InstanceCount":1,"InstanceGroupType":"CORE","Name":"Central","InstanceType":"m5.xlarge","EbsConfiguration":{"EbsBlockDeviceConfigs":[{"VolumeSpecification":{"VolumeType":"gp2","SizeInGB":32},"VolumesPerInstance":2}]}},{"InstanceCount":1,"InstanceGroupType":"TASK","Name":"Tarea - 1","InstanceType":"m5.xlarge","EbsConfiguration":{"EbsBlockDeviceConfigs":[{"VolumeSpecification":{"VolumeType":"gp2","SizeInGB":32},"VolumesPerInstance":2}]}}]' \
 		--auto-scaling-role "$(AUTO_SCALING_ROLE)" \
 		--scale-down-behavior "TERMINATE_AT_TASK_COMPLETION" \
-		--auto-termination-policy '{"IdleTimeout":3600}' \
 		--region "$(REGION)" \
 		--bootstrap-actions '[{"Path":"$(BOOTSTRAP_S3_PATH)"}]' \
 		--query 'ClusterId' --output text | tr -d '"' > $(CLUSTER_ID_FILE)
@@ -62,7 +64,12 @@ create-cluster:
 add-step:
 	@read -p "Enter Cluster ID (or leave empty to use last created): " CLUSTER_ID_INPUT; \
 	CLUSTER_ID=$${CLUSTER_ID_INPUT:-$$(cat $(CLUSTER_ID_FILE))}; \
-	aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=TERMINATE_CLUSTER,Args=[--deploy-mode,cluster,--master,yarn,$(BUCKET_CODE)/main.py,--input_uris,$(BUCKET_DATA)/product1.csv,$(BUCKET_DATA)/product2.csv,$(BUCKET_DATA)/product3.csv,--delta_table_path,$(BUCKET_DATA)/delta/products]
+	FILE_EXISTS=$$(aws s3 ls $(BUCKET_CODE)/main.py); \
+	if [ -z "$$FILE_EXISTS" ]; then \
+		echo "Error: main.py not found in $(BUCKET_CODE). Exiting..."; \
+		exit 1; \
+	fi; \
+	aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=CONTINUE,Args=["--deploy-mode","cluster","--master","yarn","$(BUCKET_CODE)/main.py","s3://$(BUCKET_DATA)/product1.csv,s3://$(BUCKET_DATA)/product2.csv,s3://$(BUCKET_DATA)/product3.csv","s3://$(BUCKET_OUTPUT)/delta_table"]
 
 monitor-cluster:
 	@read -p "Enter Cluster ID (or leave empty to use last created): " CLUSTER_ID_INPUT; \
@@ -82,4 +89,5 @@ clean:
 	aws s3 rb $(BUCKET_CODE) --force
 	aws s3 rb $(BUCKET_LOGS) --force
 	aws s3 rb $(BUCKET_DATA) --force
+	aws s3 rb $(BUCKET_OUTPUT) --force
 	rm -f $(CLUSTER_ID_FILE)

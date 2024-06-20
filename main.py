@@ -1,23 +1,36 @@
-import sys
-from pyspark.sql import SparkSession
+# from pyspark.sql import SparkSession
+# import sys
 
-def main(input_uris, output_uri):
-    spark = SparkSession.builder.appName("ProcessProductData").getOrCreate()
+# """
+#     bucket: s3://emr-data-holamundo
+#     con archivos:
+#         - products1.csv
+#         - products2.csv
+#         - products3.csv
+    
+#         uniremos los archivos en un solo DataFrame y guardaremos el resultado en formato Delta en la carpeta /delta/product_data
+# """
 
-    # Leer los archivos de entrada desde S3
-    df1 = spark.read.csv(input_uris[0], header=True, inferSchema=True)
-    df2 = spark.read.csv(input_uris[1], header=True, inferSchema=True)
-    df3 = spark.read.csv(input_uris[2], header=True, inferSchema=True)
+# Bucket = "s3://emr-data-holamundo"
 
-    # Unir los DataFrames
-    combined_df = df1.union(df2).union(df3)
+# def main():
+#     spark = SparkSession.builder.appName("Spark Delta Lake").getOrCreate()
 
-    # Escribir el DataFrame combinado en la carpeta de salida en S3
-    combined_df.write.csv(output_uri, header=True, mode='overwrite')
+#     # Leer los archivos CSV
+#     df1 = spark.read.csv(f"{Bucket}/products1.csv", header=True)
+#     df2 = spark.read.csv(f"{Bucket}/products2.csv", header=True)
+#     df3 = spark.read.csv(f"{Bucket}/products3.csv", header=True)
 
-    spark.stop()
+#     # Unir los DataFrames
+#     df = df1.union(df2).union(df3)
 
-if __name__ == "__main__":
-    input_uris = sys.argv[1:4]
-    output_uri = sys.argv[4]
-    main(input_uris, output_uri)
+#     # Guardar el DataFrame en un csv en parquet
+#     df.write.format("parquet").save(f"{Bucket}/parquet/product_data")
+
+#     spark.stop()
+
+
+# if __name__ == "__main__":
+#     main()
+
+print("Hola Mundo")
