@@ -86,8 +86,6 @@ monitor-cluster:
 	done
 
 clean:
-	aws s3 rb $(BUCKET_CODE) --force
-	aws s3 rb $(BUCKET_LOGS) --force
 	aws s3 rb $(BUCKET_DATA) --force
 	aws s3 rb $(BUCKET_OUTPUT) --force
 	rm -f $(CLUSTER_ID_FILE)
