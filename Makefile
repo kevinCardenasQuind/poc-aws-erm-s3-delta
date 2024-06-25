@@ -2,6 +2,7 @@
 BUCKET_CODE=s3://emr-code-holamundo
 BUCKET_LOGS=s3://emr-logs-holamundo
 BUCKET_DATA=s3://emr-data-holamundo
+BUCKET_DATA_PRODUCTS=$(BUCKET_DATA)/products
 BUCKET_OUTPUT=s3://emr-output-holamundo
 REGION=us-east-1
 CLUSTER_NAME=emr-holamundo-cluster
@@ -20,7 +21,7 @@ CLUSTER_ID_FILE=cluster_id.txt
 BOOTSTRAP_SCRIPT=install-jupyter.sh
 BOOTSTRAP_S3_PATH=$(BUCKET_CODE)/bootstrap-actions/$(BOOTSTRAP_SCRIPT)
 
-.PHONY: all create-buckets upload-code upload-data upload-bootstrap create-cluster add-step monitor-cluster clean
+proff-code: create-buckets upload-code upload-data add-step
 
 all: create-buckets upload-code upload-data upload-bootstrap create-cluster add-step monitor-cluster
 
@@ -34,9 +35,7 @@ upload-code:
 	aws s3 cp main.py $(BUCKET_CODE)/
 
 upload-data:
-	aws s3 cp data/products/product1.csv $(BUCKET_DATA)/
-	aws s3 cp data/products/product2.csv $(BUCKET_DATA)/
-	aws s3 cp data/products/product3.csv $(BUCKET_DATA)/
+	aws s3 sync data/products/ $(BUCKET_DATA_PRODUCTS)/
 
 upload-bootstrap:
 	aws s3 cp $(BOOTSTRAP_SCRIPT) $(BOOTSTRAP_S3_PATH)
@@ -69,14 +68,19 @@ add-step:
 		echo "Error: main.py not found in $(BUCKET_CODE). Exiting..."; \
 		exit 1; \
 	fi; \
-	aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=CONTINUE,Args=["--deploy-mode","cluster","--master","yarn","s3://emr-code-holamundo/main.py","s3://emr-data-holamundo/","s3://emr-output-holamundo/"]
+	CLUSTER_STATE=$$(aws emr describe-cluster --cluster-id $$CLUSTER_ID --query "Cluster.Status.State" --output text); \
+	if [ "$$CLUSTER_STATE" = "TERMINATING" ] || [ "$$CLUSTER_STATE" = "TERMINATED" ] || [ "$$CLUSTER_STATE" = "TERMINATED_WITH_ERRORS" ]; then \
+		echo "Error: Cluster is in state $$CLUSTER_STATE and cannot be modified."; \
+		exit 1; \
+	fi; \
+	aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=TERMINATE_CLUSTER,Args=["--deploy-mode","cluster","--master","yarn","$(BUCKET_CODE)/main.py","$(BUCKET_DATA_PRODUCTS)/*","$(BUCKET_OUTPUT)/combined/products"]
 
 monitor-cluster:
 	@read -p "Enter Cluster ID (or leave empty to use last created): " CLUSTER_ID_INPUT; \
 	CLUSTER_ID=$${CLUSTER_ID_INPUT:-$$(cat $(CLUSTER_ID_FILE))}; \
 	while true; do \
 		STATE=$$(aws emr describe-cluster --cluster-id $$CLUSTER_ID --query "Cluster.Status.State" --output text); \
-		if [ "$$STATE" == "WAITING" ] || [ "$$STATE" == "TERMINATED" ] || [ "$$STATE" == "TERMINATED_WITH_ERRORS" ]; then \
+		if [ "$$STATE" = "WAITING" ] || [ "$$STATE" = "TERMINATED" ] || [ "$$STATE" = "TERMINATED_WITH_ERRORS" ]; then \
 			echo "Cluster state: $$STATE"; \
 			break; \
 		else \
@@ -86,6 +90,16 @@ monitor-cluster:
 	done
 
 clean:
-	aws s3 rb $(BUCKET_DATA) --force
-	aws s3 rb $(BUCKET_OUTPUT) --force
-	rm -f $(CLUSTER_ID_FILE)
+	@BUCKET_EXISTS=$$(aws s3 ls s3://emr-data-holamundo 2>&1 | grep 'NoSuchBucket'); \
+	if [ -z "$$BUCKET_EXISTS" ]; then \
+		aws s3 rb s3://emr-data-holamundo --force; \
+	else \
+		echo "Bucket s3://emr-data-holamundo does not exist."; \
+	fi
+	@BUCKET_OUTPUT_EXISTS=$$(aws s3 ls $(BUCKET_OUTPUT) 2>&1 | grep 'NoSuchBucket'); \
+	if [ -z "$$BUCKET_OUTPUT_EXISTS" ]; then \
+		aws s3 rb $(BUCKET_OUTPUT) --force; \
+	else \
+		echo "Bucket $(BUCKET_OUTPUT) does not exist."; \
+	fi
+	@echo "Buckets removed if they existed."
