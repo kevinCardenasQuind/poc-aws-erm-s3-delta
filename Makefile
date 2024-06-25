@@ -69,7 +69,7 @@ add-step:
 		echo "Error: main.py not found in $(BUCKET_CODE). Exiting..."; \
 		exit 1; \
 	fi; \
-    aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=CONTINUE,Args=["--deploy-mode","cluster","--master","yarn","$(BUCKET_CODE)/main.py","$(BUCKET_DATA)","$(BUCKET_OUTPUT)"]
+	aws emr add-steps --cluster-id $$CLUSTER_ID --steps Type=Spark,Name="ProcessProductData",ActionOnFailure=CONTINUE,Args=["--deploy-mode","cluster","--master","yarn","s3://emr-code-holamundo/main.py","s3://emr-data-holamundo/","s3://emr-output-holamundo/"]
 
 monitor-cluster:
 	@read -p "Enter Cluster ID (or leave empty to use last created): " CLUSTER_ID_INPUT; \
